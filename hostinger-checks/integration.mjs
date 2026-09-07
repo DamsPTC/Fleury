@@ -62,6 +62,11 @@ if(attachment($token,$b)['url']!==$a['url']||count($GLOBALS['calls'])!==1)throw 
 if($GLOBALS['calls'][0]!=='/channels/'.$b['channel'].'/messages?around='.$b['message'].'&limit=3')throw new Exception('Wrong endpoint');
 attachment('different-session-token',$b);if(count($GLOBALS['calls'])!==2)throw new Exception('Session cache leak');
 $b['message']='423456789012345678';try{attachment($token,$b);throw new Exception('Wrong message accepted');}catch(FleuryError $e){if($e->status!==404)throw $e;}
+if(!valid_chunk(206,1024,0,4096,8192,'bytes 0-1023/8192'))throw new Exception('Short valid range rejected');
+if(valid_chunk(206,1024,0,4096,8192,'bytes 1024-2047/8192'))throw new Exception('Wrong offset accepted');
+if(valid_chunk(206,1024,0,4096,8192,'bytes 0-2047/8192'))throw new Exception('Truncated response accepted');
+if(valid_chunk(200,1024,1024,4096,8192,''))throw new Exception('Ignored range accepted');
+if(!valid_chunk(200,1024,0,4096,1024,''))throw new Exception('Whole small file rejected');
 echo 'PASS';`});
 assert.equal(cacheTest.errors,'');assert.equal(cacheTest.text,'PASS');
 console.log('PASS: PHP auth, CSRF, private downloads, CDN restrictions, cached attachment links, expired-link renewal, session isolation and exact-message matching.');

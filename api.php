@@ -39,7 +39,7 @@ try {
         }
         respond(['count'=>count($m),'before'=>count($m)?$m[count($m)-1]['id']:null,'done'=>count($m)<100,'items'=>$items]);
     }
-    if($action==='save'){$a=attachment($token,$b);respond(save_chunk($a,media_key($b)));}
+    if($action==='save'){$a=attachment($token,$b);respond(save_chunk($a,media_key($b),(int)($b['chunkBytes']??4194304)));}
     if($action==='file'){
         $a=attachment($token,$b);$c=curl_handle(media_url($a['url']));
         // No disk persistence for browser downloads. A bounded buffer holds at most a ZIP-sized media.

@@ -1,4 +1,5 @@
 import { zip } from './zip.js';
+import { saveQueue } from './save-queue.js';
 const $ = id => document.getElementById(id);
 const SESSION = 'fleury.discord.session';
 const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
@@ -6,6 +7,7 @@ const bytes = n => n >= 1e9 ? (n / 1e9).toFixed(2) + ' Go' : n >= 1e6 ? (n / 1e6
 if ($('workspace')) {
     let token = '', user = null, busy = false, stopped = false, controller = null;
     let channel = '', before = null, done = false, items = [], messages = 0, shown = 30;
+    const failures = new Map(), successes = new Set();
     let saveIndex = 0, zipIndex = 0, zipPart = 0, objectURL = '', libraryCursor = null;
     try { token = sessionStorage.getItem(SESSION) || ''; } catch { /* Memory-only fallback. */ }
     function note(text) { $('status').hidden = false; $('message').textContent = text; }
@@ -33,7 +35,9 @@ if ($('workspace')) {
         $('progress').hidden = !busy;
         $('scan').textContent = done ? 'Historique parcouru' : messages ? 'Reprendre la recherche' : 'Rechercher tous les médias';
         $('prepared-count').textContent = `${zipIndex}/${items.length} médias préparés`;
-        $('saved-count').textContent = `${saveIndex}/${items.length} médias sauvegardés`;
+        $('saved-count').textContent = `${successes.size}/${items.length} sauvegardés · ${failures.size} en échec · ${saveIndex}/${items.length} traités`;
+        $('retry-failed').hidden = !failures.size;
+        $('retry-failed').disabled = busy || !user;
         $('prepare').textContent = zipIndex ? 'Préparer le lot suivant' : 'Préparer le téléchargement';
         $('save').textContent = saveIndex ? 'Reprendre la sauvegarde' : 'Sauvegarder tous les médias';
     }
@@ -56,7 +60,7 @@ if ($('workspace')) {
             const data = await res.json().catch(() => ({ error: 'Réponse illisible du serveur. Vérifie le déploiement Hostinger.' }));
             if (res.status === 429 && attempt < 5) { note(`Pause demandée par le serveur (${Math.ceil(data.retryAfter || 5)} s)…`); await wait((data.retryAfter || 5) * 1000 + 250); continue; }
             if (res.status === 401 && /jeton/i.test(data.error || '')) { clearToken(); user = null; }
-            throw new Error(data.error || 'La requête a échoué.');
+            const error = new Error(data.error || 'La requête a échoué.'); error.status = res.status; throw error;
         }
     }
     async function run(label, fn) {
@@ -72,6 +76,7 @@ if ($('workspace')) {
     }
     function reset() {
         before = null; done = false; items = []; messages = 0; shown = 30; saveIndex = 0; zipIndex = 0; zipPart = 0;
+        failures.clear(); successes.clear(); renderFailures();
         clearReady(); $('message').textContent = ''; $('error').textContent = ''; inventory(); controls();
     }
     function inventory() {
@@ -101,14 +106,41 @@ if ($('workspace')) {
         clearReady(); objectURL = URL.createObjectURL(blob);
         const link = document.createElement('a'); link.href = objectURL; link.download = name; link.className = 'button primary download'; link.textContent = 'Enregistrer ' + name; $('download-ready').append(link);
     }
+    function renderFailures() {
+        $('failure-rows').replaceChildren();
+        $('failures').hidden = !failures.size;
+        for(const {item,error} of failures.values()) {
+            const row=document.createElement('p'); row.className='error';
+            row.textContent=item.name+' — '+error; $('failure-rows').append(row);
+        }
+    }
     async function saveOne(m) {
         let result;
         do {
-            result = await request({ action: 'save', channel: m.channel, message: m.message, id: m.id });
+            for(let attempt=0;attempt<3;attempt++) {
+                note(`Sauvegarde : ${m.name} — ${attempt ? 'nouvelle tentative '+(attempt+1)+'/3' : 'transfert en cours…'}`);
+                try {
+                    result=await request({action:'save',channel:m.channel,message:m.message,id:m.id,chunkBytes:[4194304,1048576,524288][attempt]});
+                    break;
+                } catch(e) {
+                    if(e.name==='AbortError'||[401,403,404,429,507].includes(e.status)||attempt===2)throw e;
+                    note(`${m.name} — interruption temporaire, nouvel essai dans ${attempt+1} s…`);
+                    await wait((attempt+1)*1000);
+                }
+            }
             note(`${m.name} — ${bytes(result.offset)} / ${bytes(result.total)}`);
             $('progress').value = result.total ? result.offset / result.total * 100 : 100;
             if (!result.saved) await wait(400);
         } while (!result.saved);
+    }
+    async function batch(retryOnly=false) {
+        const list=retryOnly ? [...failures.values()].map(x=>x.item) : items;
+        await saveQueue({items:list,start:retryOnly?0:saveIndex,save:saveOne,
+            onSuccess:m=>{successes.add(m.id);failures.delete(m.id);},
+            onFailure:(m,e)=>{failures.set(m.id,{item:m,error:e.message});},
+            onAdvance:i=>{if(!retryOnly)saveIndex=i;renderFailures();controls();}
+        });
+        note(failures.size ? `Parcours terminé : ${successes.size} sauvegardés, ${failures.size} fichiers à réessayer ci-dessous.` : `Tous les médias trouvés sont sauvegardés (${successes.size}).`);
     }
     $('connect-form').addEventListener('submit', e => {
         e.preventDefault(); void run('Connexion à Discord', async () => {
@@ -146,10 +178,8 @@ if ($('workspace')) {
         } while (!done);
         note(`Historique parcouru : ${items.length} médias trouvés.`);
     }));
-    $('save').addEventListener('click', () => void run('Sauvegarde sur Hostinger', async () => {
-        while (saveIndex < items.length) { await saveOne(items[saveIndex]); saveIndex++; controls(); await wait(400); }
-        note('Tous les médias trouvés sont sauvegardés sur ton hébergement.');
-    }));
+    $('save').addEventListener('click', () => void run('Sauvegarde sur Hostinger', () => batch()));
+    $('retry-failed').addEventListener('click', () => void run('Nouvel essai des fichiers en échec', () => batch(true)));
     $('prepare').addEventListener('click', () => void run('Préparation du téléchargement', async () => {
         let i = zipIndex, total = 0; const files = [];
         while (i < items.length) {

@@ -79,7 +79,13 @@ function media_key(array $b): string {return snowflake($b['channel']??null).'_'.
 function stored_key(mixed $key): string {
     if(!is_string($key)||!preg_match('/^\d{16,22}_\d{16,22}_\d{16,22}$/D',$key))throw new FleuryError(400,'Fichier invalide.');return $key;
 }
-function save_chunk(array $a,string $key): array {
+function valid_chunk(int $status,int $bytes,int $offset,int $length,int $total,string $range): bool {
+    if($bytes<=0||$bytes>$length)return false;
+    if($status===200)return $offset===0&&$bytes===$total;
+    if($status!==206||!preg_match('/^bytes\s+(\d+)-(\d+)\/(\d+)$/iD',trim($range),$r))return false;
+    return (int)$r[1]===$offset&&(int)$r[2]===$offset+$bytes-1&&(int)$r[3]===$total;
+}
+function save_chunk(array $a,string $key,int $chunkBytes=4194304): array {
     $dir=private_dir();$base=$dir.'/media/'.$key;$expected=(int)$a['size'];
     $lock=fopen($dir.'/storage.lock','c');
     if(!$lock||!flock($lock,LOCK_EX|LOCK_NB))throw new FleuryError(429,'Une sauvegarde est en cours.',2);
@@ -92,7 +98,8 @@ function save_chunk(array $a,string $key): array {
         foreach(glob($dir.'/media/chunk-*')?:[] as $stale)if(is_file($stale)&&filemtime($stale)<time()-3600)@unlink($stale);
         $offset=is_file($base.'.part')?(int)filesize($base.'.part'):0;
         if($offset>$expected){@unlink($base.'.part');$offset=0;}
-        $length=min(4*1024*1024,$expected-$offset);
+        $chunkBytes=in_array($chunkBytes,[4194304,1048576,524288],true)?$chunkBytes:4194304;
+        $length=min($chunkBytes,$expected-$offset);
         $cap=(int)(getenv('FLEURY_STORAGE_LIMIT_BYTES')?:10737418240);
         $used=0;foreach(new DirectoryIterator($dir.'/media') as $f)if($f->isFile())$used+=$f->getSize();
         $free=@disk_free_space($dir);
@@ -103,12 +110,11 @@ function save_chunk(array $a,string $key): array {
             curl_setopt($c,CURLOPT_RANGE,$offset.'-'.($offset+$length-1));
             curl_setopt($c,CURLOPT_HEADERFUNCTION,static function($c,$line)use(&$headers){if(str_starts_with($line,'HTTP/'))$headers=[];if(str_contains($line,':')){[$k,$v]=explode(':',$line,2);$headers[strtolower(trim($k))]=trim($v);}return strlen($line);});
             curl_setopt($c,CURLOPT_WRITEFUNCTION,static function($c,$chunk)use($out,&$bytes,$length){$n=strlen($chunk);if($bytes+$n>$length)return 0;$written=fwrite($out,$chunk);$bytes+=$written;return $written;});
-            $ok=curl_exec($c);$status=curl_getinfo($c,CURLINFO_RESPONSE_CODE);curl_close($c);fclose($out);
-            $range='bytes '.$offset.'-'.($offset+$length-1).'/'.$expected;
-            if($ok===false||$bytes!==$length||!(($status===206&&($headers['content-range']??'')===$range)||($status===200&&$offset===0&&$length===$expected)))throw new FleuryError(502,'Ce morceau du média n’a pas été reçu en entier. Relance la sauvegarde pour reprendre.');
+            $ok=curl_exec($c);$status=curl_getinfo($c,CURLINFO_RESPONSE_CODE);$errno=curl_errno($c);curl_close($c);fclose($out);
+            if($ok===false||!valid_chunk($status,$bytes,$offset,$length,$expected,$headers['content-range']??''))throw new FleuryError(502,'Transfert incomplet ou plage invalide : HTTP '.$status.', cURL '.$errno.', début '.$offset.', reçu '.$bytes.' / demandé '.$length.' octets.');
             $dest=fopen($base.'.part','ab');$source=fopen($tmp,'rb');$copied=stream_copy_to_stream($source,$dest);fclose($source);fclose($dest);
-            if($copied!==$length)throw new FleuryError(507,'Écriture interrompue. Libère de la place puis reprends.');
-            $offset+=$length;
+            if($copied!==$bytes)throw new FleuryError(507,'Écriture interrompue. Libère de la place puis reprends.');
+            $offset+=$bytes;
         } elseif(!is_file($base.'.part')) {atomic_write($base.'.part','');}
         if($offset===$expected){
             if(!@rename($base.'.part',$base.'.blob'))throw new FleuryError(507,'Impossible de terminer la sauvegarde.');

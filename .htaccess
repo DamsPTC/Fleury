@@ -5,7 +5,7 @@ Options -Indexes
 <IfModule mod_rewrite.c>
 RewriteEngine On
 # Only the PHP entrypoints and the explicit static assets may be served.
-RewriteRule ^(?:index\.php|api\.php|download\.php|assets/(?:app\.js|zip\.js|style\.css|favicon\.svg))$ - [L]
+RewriteRule ^(?:index\.php|api\.php|download\.php|assets/(?:app\.js|save-queue\.js|zip\.js|style\.css|favicon\.svg))$ - [L]
 RewriteRule ^$ index.php [L]
 RewriteRule . - [F,L]
 </IfModule>
