@@ -1,0 +1,20 @@
+# Hostinger Premium / Apache / LiteSpeed: PHP entrypoint, no Node build required.
+DirectoryIndex index.php
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+RewriteEngine On
+# Only the PHP entrypoints and the explicit static assets may be served.
+RewriteRule ^(?:index\.php|api\.php|download\.php|assets/(?:app\.js|zip\.js|style\.css|favicon\.svg))$ - [L]
+RewriteRule ^$ index.php [L]
+RewriteRule . - [F,L]
+</IfModule>
+
+<FilesMatch "(?i)(^\.|\.(?:json|ts|tsx|mjs|md|sh|ini|lock|map|log|sql|txt)$)">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_headers.c>
+Header always set X-Content-Type-Options "nosniff"
+Header always set Referrer-Policy "no-referrer"
+</IfModule>

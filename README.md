@@ -1,35 +1,48 @@
-# Fleury — Médias Discord
+# Fleury — version Hostinger Premium
 
-Application privée en français pour sélectionner un serveur et un salon, parcourir son historique et récupérer ses pièces jointes image, vidéo et audio.
+Le dépôt se déploie maintenant directement en **PHP 8.2 ou supérieur**, sur l’hébergement web Premium Hostinger. Il n’y a aucune compilation JavaScript, aucune dépendance Composer et aucun processus Node à lancer pour cette version.
 
-## Fonctionnement
+## Déploiement sur letaulard.com
 
-- Le jeton personnel Discord est saisi dans un champ masqué et conservé dans `sessionStorage` pour l'onglet courant. Il n'est jamais inclus dans les URL, les fichiers source, les cookies ou les journaux applicatifs. Déconnexion = effacement du jeton. Le navigateur peut restaurer une session après fermeture : utiliser Déconnecter pour un effacement explicite.
-- Il transite en HTTPS vers le serveur via `x-discord-token`, puis est transmis exclusivement à l'API Discord. Le serveur ne le persiste pas. Ce n'est pas un flux OAuth officiel.
-- Historique par pages de 100 messages, pagination des serveurs, gestion des réponses 429 avec attente et reprise, bouton Pause, reprise dans l'onglet tant que la page n'est pas rechargée.
-- ZIP sans compression d'environ 32 Mio par lot, téléchargement explicite adapté à Safari. Les médias plus volumineux sont proposés individuellement. Les téléchargements navigateur utilisent des Blob : pour les très grosses vidéos et téléphones à mémoire limitée, privilégier la sauvegarde sur le site. Le lot précédent doit être enregistré avant de préparer le suivant.
-- Sauvegarde en streaming dans un bucket R2 privé. Clé déterministe par utilisateur/salon/message/pièce jointe pour ignorer les doublons. Téléchargement ultérieur indépendant du jeton Discord.
-- Les fichiers de threads/publications de forums nécessitent de saisir l'identifiant de chaque fil ; pas d'inclusion implicite des sous-fils. Les liens externes, aperçus intégrés sans pièce jointe et contenus supprimés sont exclus.
-- Aucune simulation ou donnée de démonstration. Les erreurs d'accès à Discord sont montrées à l'utilisateur. Discord peut refuser une connexion personnelle même avec un jeton valide.
+1. Dans Hostinger, vérifier **PHP 8.2 ou supérieur** et l’extension **cURL**.
+2. Relancer le déploiement Git du dépôt `DamsPTC/Fleury`, branche `main`, dans le dossier du domaine (`public_html`). Les fichiers `index.php`, `api.php`, `download.php`, `.htaccess` et le dossier `assets` doivent être directement à la racine du site. Les fichiers cachés doivent être déployés également.
+3. Ouvrir `https://letaulard.com/`. Le fichier `.htaccess` utilise `index.php` comme page d’accueil. Si le cache Hostinger conserve le 403 précédent, purger le cache du domaine.
+4. À la première visite, ouvrir le **gestionnaire de fichiers Hostinger** (accès à tous les fichiers), remonter au dossier contenant `public_html`, puis ouvrir **`fleury-private/setup-code.txt`**. Copier son contenu dans le formulaire du site et choisir un mot de passe de 12 à 72 octets (maximum bcrypt). Ce n’est ni le mot de passe ni le jeton Discord.
+5. Une fois entré dans le site, saisir le jeton Discord, sélectionner le serveur et le salon, puis rechercher les médias.
 
-## Hébergement
+Le code d’installation est généré sur l’hébergement, jamais sur GitHub et jamais affiché au visiteur. Il est supprimé lorsque le mot de passe a été créé. Une personne qui ne possède pas l’accès au gestionnaire de fichiers ne peut pas initialiser l’espace à votre place.
 
-Ce dépôt contient l'application Vinext/React avec un serveur Cloudflare Workers et un bucket R2, intégrée à Sites. GitHub héberge le code ; GitHub Pages ne peut pas exécuter ce serveur.
+Si PHP ne peut pas créer `fleury-private`, le site affiche une instruction : créer ce dossier manuellement **à côté de** `public_html`, avec les droits d’écriture du compte d’hébergement. Ne jamais le placer à l’intérieur de `public_html`. Un dossier personnalisé peut être défini via la variable serveur `FLEURY_DATA_DIR` ; l’application refuse tout emplacement dans la racine publique.
 
-`npm ci` puis `npm run build` avec Node 22.13 ou supérieur. Le fichier `.openai/hosting.json` déclare `BUCKET` et l'identité du site. Le pipeline fourni génère le Worker et les actifs statiques. Déployer avec la compétence Sites ; aucun secret Discord n'est à configurer sur l'hébergement.
+## Fonctionnalités
 
-L'instance Sites est privée, réservée à son propriétaire. Les routes API exigent l'identité `oai-authenticated-user-id` validée et injectée par le dispatcher Sites. Ne pas héberger ce code tel quel sur un serveur public acceptant ce champ depuis les clients : un hébergement externe doit implémenter une authentification serveur vérifiée, supprimer les en-têtes d'identité entrants et connecter un stockage privé. Les fichiers ne sont jamais servis par des URLs publiques R2.
+- Jeton Discord dans `sessionStorage` pour l’onglet courant, effacé lors de la déconnexion Discord ou du verrouillage du site. Il transite en HTTPS via un en-tête vers PHP puis vers Discord, mais n’est stocké ni dans la session PHP, ni dans les fichiers, ni dans les journaux applicatifs.
+- Pagination de tous les serveurs et de l’historique du salon, attente après les réponses Discord 429, pause et reprise dans l’onglet courant.
+- ZIP navigateur sans compression par lots d’environ 32 Mio. Enregistrer le lot prêt avant de préparer le suivant.
+- Médias supérieurs à 32 Mio : préparation sur le stockage privé du site, puis téléchargement natif du navigateur (aucun Blob géant en mémoire sur iPhone). Ces médias restent ensuite dans les sauvegardes.
+- Sauvegarde locale sur Hostinger, par morceaux de 4 Mio, avec contrôle de la réponse HTTP Range et de la longueur reçue, reprise des fichiers partiels et détection des doublons. Un morceau interrompu n’est pas publié comme fichier terminé.
+- Téléchargement des sauvegardes par une route PHP authentifiée, sans jeton Discord, sans adresse publique des fichiers, et sans chargement intégral dans la mémoire de PHP.
+- Pièces jointes image, vidéo et audio uniquement. Les liens externes et médias supprimés ne sont pas récupérables. Les fils et publications de forums se sélectionnent séparément avec leur identifiant.
 
-## Limites et sécurité
+## Accès et stockage
 
-Discord interdit l'automatisation des comptes personnels et peut fermer le compte. L'application n'automatise ni challenge, ni CAPTCHA et ne contourne aucun droit d'accès. Utiliser uniquement pour les médias que l'on est autorisé à conserver.
+Le site possède un unique accès privé protégé par le mot de passe créé lors de l’installation. Le mot de passe est haché avec `password_hash`; le cookie de session est HttpOnly/Secure/SameSite=Strict. Les opérations utilisent un jeton CSRF. Les sessions expirent après 12 heures. Une limitation de tentatives protège le formulaire de connexion.
 
-Le jeton de session donne accès au compte Discord. Ne jamais le coller dans une conversation, un dépôt ou un site tiers non fiable. `sessionStorage` reste accessible au JavaScript de la page : ce n'est pas un coffre-fort chiffré. Aucune télémétrie ou script tiers n'est ajouté. Une politique CSP restreint les ressources à la même origine.
+`fleury-private` contient les sessions, le hachage du mot de passe et les médias. Ce dossier est hors de la racine publique et ne fait pas partie du dépôt : un redéploiement du code ne doit pas l’effacer. Sauvegarder ce dossier via Hostinger. Pour réinitialiser le mot de passe, supprimer **uniquement `auth.json` et les fichiers du sous-dossier `sessions`** depuis le gestionnaire Hostinger puis rouvrir le site pour obtenir un nouveau code d’installation. Ne pas supprimer `media`.
 
-Les transferts s'exécutent pendant que l'onglet est ouvert ; la mise en veille sur iOS peut les suspendre. Les fichiers déjà sauvegardés restent présents, mais un rechargement recommence l'inventaire. Aucun travail asynchrone ne conserve le jeton sur le serveur.
+Le stockage est plafonné par défaut à **10 Gio** pour éviter de remplir tout l’hébergement. La variable serveur optionnelle `FLEURY_STORAGE_LIMIT_BYTES` permet de changer cette limite. Les fichiers partiels comptent dans le quota. Les fichiers `.part` abandonnés peuvent être supprimés depuis le gestionnaire Hostinger si une sauvegarde n’est plus souhaitée. L’application vérifie aussi l’espace disque disponible. Elle ne peut pas garantir qu’une limite de quota imposée séparément par Hostinger sera connue avant une erreur d’écriture.
 
-Le stockage consomme le quota de l'hébergement ; des échecs sont affichés sans annoncer une sauvegarde réussie. L'inventaire complet utilise la mémoire du navigateur. Les historiques exceptionnellement grands et les fichiers individuels très volumineux sont soumis aux capacités du navigateur et de l'hébergeur.
+Garder la page ouverte pendant les opérations. iOS peut suspendre un onglet en arrière-plan. Un rechargement recommence l’inventaire ; les fichiers terminés et les morceaux sauvegardés sur le serveur sont conservés. La durée et les limites de l’hébergeur s’appliquent, et Discord peut refuser certains téléchargements par morceaux ou les sessions de comptes personnels.
 
-## Validation
+Discord interdit l’automatisation des comptes personnels et peut fermer le compte. Aucun CAPTCHA ni restriction d’accès n’est contourné. Aucun jeton ne doit être envoyé dans une conversation ou ajouté au dépôt.
 
-Compilation de production et tests ciblés des restrictions d'URL/identifiants et des archives ZIP. Les transferts Discord réels nécessitent la session personnelle de l'utilisateur et ne sont pas validés avec un compte de test. Aucun jeton réel n'est nécessaire à la compilation.
+## Vérification et structure
+
+- Entrées PHP : `index.php`, `api.php`, `download.php`.
+- Backend : `backend/bootstrap.php` et `backend/discord.php`.
+- Interface sans compilation : `assets/app.js`, `assets/zip.js`, `assets/style.css`.
+- `hostinger-checks/integration.mjs` teste le vrai PHP 8.2 via le runtime optionnel `@php-wasm/node` / `@php-wasm/universal` : affichage, installation protégée, mot de passe haché, sessions, CSRF, bibliothèque privée, téléchargement, chemins invalides, hôtes CDN et déconnexion. Le runtime de test n’est pas une dépendance de production. `FLEURY_PHP_WASM_ROOT` peut désigner le `node_modules` où il est installé.
+- Vérification PHP standard : `php -l index.php`, idem pour les autres fichiers PHP. Vérification JavaScript : `node --check assets/app.js`.
+- Les échanges réels avec Discord nécessitent le jeton personnel saisi sur le site. Les tests ne prétendent pas valider un compte Discord réel ni la configuration Apache/LiteSpeed de Hostinger.
+
+Les sources React/Vinext précédentes (`app`, `worker`, `.openai`, etc.) restent disponibles pour l’instance Sites déjà publiée. **Elles ne sont pas exécutées par la version Hostinger** ; aucune donnée du stockage Sites n’est automatiquement transférée vers Hostinger. Les règles `.htaccess` bloquent leur consultation HTTP. Ne pas utiliser `npm run build` pour le déploiement PHP décrit ici.

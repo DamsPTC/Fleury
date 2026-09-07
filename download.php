@@ -1,0 +1,14 @@
+<?php
+declare(strict_types=1);
+require __DIR__.'/backend/discord.php';
+try {
+    start_session();
+    if(($_SERVER['REQUEST_METHOD']??'')!=='POST')throw new FleuryError(405,'Méthode non autorisée.');
+    if(!authenticated())throw new FleuryError(401,'Reconnecte-toi au site.');
+    csrf_check();session_write_close();
+    $key=stored_key($_POST['key']??null);$base=private_dir().'/media/'.$key;
+    $meta=is_file($base.'.json')?json_decode((string)file_get_contents($base.'.json'),true):null;
+    if(!$meta)throw new FleuryError(404,'Fichier introuvable.');
+    serve_file($base.'.blob',$meta['name']);
+}catch(FleuryError $e){respond(['error'=>$e->getMessage()],$e->status);}
+catch(Throwable $e){respond(['error'=>'Téléchargement indisponible.'],500);}
