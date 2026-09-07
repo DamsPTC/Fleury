@@ -16,6 +16,8 @@ Si PHP ne peut pas créer `fleury-private`, le site affiche une instruction : cr
 
 ## Fonctionnalités
 
+- Les liens signés reçus pendant l’inventaire sont conservés dans `fleury-private/attachment-cache`, séparés par une empreinte de session à sens unique (jamais le jeton lui-même). Le téléchargement utilise directement ces liens. Les liens expirés ou les entrées de plus d’une heure sont renouvelés via l’historique du salon, avec vérification exacte du message et de la pièce jointe, sans requête de lecture individuelle d’un message. Le dossier de cache peut être vidé sans supprimer les médias sauvegardés. Les inventaires lancés avant cette correction restent utilisables : les liens manquants sont récupérés à la demande.
+
 - Jeton Discord dans `sessionStorage` pour l’onglet courant, effacé lors de la déconnexion Discord ou du verrouillage du site. Il transite en HTTPS via un en-tête vers PHP puis vers Discord, mais n’est stocké ni dans la session PHP, ni dans les fichiers, ni dans les journaux applicatifs.
 - Pagination de tous les serveurs et de l’historique du salon, attente après les réponses Discord 429, pause et reprise dans l’onglet courant.
 - ZIP navigateur sans compression par lots d’environ 32 Mio. Enregistrer le lot prêt avant de préparer le suivant.

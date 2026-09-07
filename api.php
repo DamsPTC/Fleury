@@ -33,7 +33,10 @@ try {
     if($action==='channels'){$guild=snowflake($b['guild']??null);$c=discord($token,"/guilds/$guild/channels");$c=array_values(array_filter($c,static fn($c)=>in_array($c['type'],[0,5,10,11,12],true)));usort($c,static fn($a,$b)=>($a['position']??0)<=>($b['position']??0));respond(['items'=>array_map(static fn($c)=>['id'=>$c['id'],'name'=>$c['name']],$c)]);}
     if($action==='messages'){
         $channel=snowflake($b['channel']??null);$before=empty($b['before'])?'':'&before='.snowflake($b['before']);$m=discord($token,"/channels/$channel/messages?limit=100$before");$items=[];
-        foreach($m as $msg)foreach($msg['attachments']??[] as $a)if(is_media($a))$items[]=['id'=>$a['id'],'message'=>$msg['id'],'channel'=>$channel,'name'=>clean_name($a['filename']??'media'),'size'=>$a['size'],'type'=>$a['content_type']??'','date'=>$msg['timestamp']];
+        foreach($m as $msg){
+            remember_attachments($token,$channel,$msg);
+            foreach($msg['attachments']??[] as $a)if(is_media($a))$items[]=['id'=>$a['id'],'message'=>$msg['id'],'channel'=>$channel,'name'=>clean_name($a['filename']??'media'),'size'=>$a['size'],'type'=>$a['content_type']??'','date'=>$msg['timestamp']];
+        }
         respond(['count'=>count($m),'before'=>count($m)?$m[count($m)-1]['id']:null,'done'=>count($m)<100,'items'=>$items]);
     }
     if($action==='save'){$a=attachment($token,$b);respond(save_chunk($a,media_key($b)));}

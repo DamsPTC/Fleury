@@ -34,11 +34,46 @@ function discord(string $token,string $path): array {
     if(!is_array($data))throw new FleuryError(502,'Réponse Discord illisible.');
     return $data;
 }
+function attachment_cache_path(string $token,string $channel,string $message): string {
+    $dir=private_dir().'/attachment-cache';
+    if(!is_dir($dir)&&!@mkdir($dir,0700)&&!is_dir($dir))throw new FleuryError(503,'Le cache privé des médias est indisponible.');
+    // One-way session fingerprint scopes metadata; the token itself is never written.
+    return $dir.'/'.hash('sha256',$token."\0".$channel."\0".$message).'.json';
+}
+function remember_attachments(string $token,string $channel,array $message): void {
+    $id=snowflake($message['id']??null);$attachments=[];
+    foreach($message['attachments']??[] as $a)if(is_media($a)){
+        $attachments[]=['id'=>snowflake($a['id']??null),'filename'=>clean_name($a['filename']??'media'),
+            'content_type'=>$a['content_type']??'', 'size'=>(int)($a['size']??0),'url'=>media_url($a['url']??null)];
+    }
+    if($attachments)atomic_write(attachment_cache_path($token,$channel,$id),json_encode(['savedAt'=>time(),'attachments'=>$attachments],JSON_THROW_ON_ERROR|JSON_INVALID_UTF8_SUBSTITUTE));
+}
+function fresh_attachment(array $record,string $id): ?array {
+    if((int)($record['savedAt']??0)<time()-3600)return null;
+    foreach($record['attachments']??[] as $a)if(($a['id']??'')===$id){
+        $url=media_url($a['url']??null);parse_str(parse_url($url,PHP_URL_QUERY)?:'', $query);
+        if(isset($query['ex'])&&(!is_string($query['ex'])||!ctype_xdigit($query['ex'])||hexdec($query['ex'])<=time()+90))return null;
+        return $a;
+    }
+    return null;
+}
 function attachment(string $token,array $b): array {
     $channel=snowflake($b['channel']??null);$message=snowflake($b['message']??null);$id=snowflake($b['id']??null);
-    $m=discord($token,"/channels/$channel/messages/$message");
-    foreach($m['attachments']??[] as $a)if(($a['id']??'')===$id&&is_media($a)){media_url($a['url']??null);$a['filename']=clean_name($a['filename']??'media');return $a;}
-    throw new FleuryError(404,'Ce média est absent ou a été supprimé.');
+    $path=attachment_cache_path($token,$channel,$message);
+    if(is_file($path)){
+        $record=json_decode((string)file_get_contents($path),true);
+        if(is_array($record)&&($a=fresh_attachment($record,$id))!==null)return $a;
+    }
+    // Renew through the same history API used by the successful inventory, never
+    // the individual-message endpoint. Require an exact message/attachment match.
+    $messages=discord($token,"/channels/$channel/messages?around=$message&limit=3");
+    foreach($messages as $m)if(($m['id']??'')===$message){
+        remember_attachments($token,$channel,$m);
+        foreach($m['attachments']??[] as $a)if(($a['id']??'')===$id&&is_media($a)){
+            media_url($a['url']??null);$a['filename']=clean_name($a['filename']??'media');return $a;
+        }
+    }
+    throw new FleuryError(404,'Média introuvable dans l’historique accessible. Relance la recherche du salon.');
 }
 function media_key(array $b): string {return snowflake($b['channel']??null).'_'.snowflake($b['message']??null).'_'.snowflake($b['id']??null);}
 function stored_key(mixed $key): string {

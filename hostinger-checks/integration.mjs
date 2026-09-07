@@ -44,5 +44,25 @@ try{snowflake('../123');echo 'FAILED';}catch(FleuryError $e){}
 echo 'OK';`});assert.equal(security.text,'OK');
 r=await req('api.php',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:'{"action":"logout"}'});assert.equal(r.httpStatusCode,200);
 r=await req('download.php',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({csrf,key}).toString()});assert.equal(r.httpStatusCode,401);
-console.log('PASS: PHP 8.2 render, owner setup, password hashing, session login, CSRF, private library, streamed download, traversal rejection, CDN restriction and logout.');
+// Mock only the Discord transport in the isolated test filesystem, never in production.
+php.writeFile('/site/public_html/backend/discord-fixture.php',fs.readFileSync(path.join(root,'backend/discord.php'),'utf8').replace('function discord(string $token,string $path): array {','function unused_test_transport(string $token,string $path): array {'));
+const cacheTest=await php.run({$_SERVER:server,code:`<?php
+function discord(string $token,string $path): array {$GLOBALS['calls'][]=$path;return $GLOBALS['fixture'];}
+require '/site/public_html/backend/discord-fixture.php';
+$token='fake-session-token-for-tests-only';
+$b=['channel'=>'123456789012345678','message'=>'223456789012345678','id'=>'323456789012345678'];
+$a=['id'=>$b['id'],'filename'=>'image.png','size'=>100,'content_type'=>'image/png','url'=>'https://cdn.discordapp.com/attachments/'.$b['channel'].'/'.$b['id'].'/image.png?ex='.dechex(time()+600).'&hm=test'];
+$m=['id'=>$b['message'],'attachments'=>[$a]];$GLOBALS['calls']=[];$GLOBALS['fixture']=[$m];
+remember_attachments($token,$b['channel'],$m);
+if(attachment($token,$b)['url']!==$a['url']||count($GLOBALS['calls'])!==0)throw new Exception('Cache miss');
+$path=attachment_cache_path($token,$b['channel'],$b['message']);
+if(str_contains(file_get_contents($path),$token))throw new Exception('Persisted credential');
+$record=json_decode(file_get_contents($path),true);$record['attachments'][0]['url']='https://cdn.discordapp.com/attachments/a/b/image.png?ex=1';atomic_write($path,json_encode($record));
+if(attachment($token,$b)['url']!==$a['url']||count($GLOBALS['calls'])!==1)throw new Exception('Refresh failed');
+if($GLOBALS['calls'][0]!=='/channels/'.$b['channel'].'/messages?around='.$b['message'].'&limit=3')throw new Exception('Wrong endpoint');
+attachment('different-session-token',$b);if(count($GLOBALS['calls'])!==2)throw new Exception('Session cache leak');
+$b['message']='423456789012345678';try{attachment($token,$b);throw new Exception('Wrong message accepted');}catch(FleuryError $e){if($e->status!==404)throw $e;}
+echo 'PASS';`});
+assert.equal(cacheTest.errors,'');assert.equal(cacheTest.text,'PASS');
+console.log('PASS: PHP auth, CSRF, private downloads, CDN restrictions, cached attachment links, expired-link renewal, session isolation and exact-message matching.');
 php.exit();
