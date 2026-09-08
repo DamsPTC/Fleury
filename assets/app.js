@@ -222,7 +222,7 @@ if ($('workspace')) {
             files.push({ name: `${m.message}_${m.id}_${m.name}`, data: new Uint8Array(await blob.arrayBuffer()) }); total += blob.size; i++;
             if (i < items.length) await wait(400);
         }
-        if (files.length) { zipPart++; readyBlob(zip(files), `Fleury-${channel}-${String(zipPart).padStart(3, '0')}.zip`); }
+        if (files.length) { zipPart++; readyBlob(zip(files), `Discord-Media-${channel}-${String(zipPart).padStart(3, '0')}.zip`); }
         zipIndex = i; note(`Téléchargement prêt (${i}/${items.length} médias préparés). Enregistre-le avant de préparer le suivant.`);
     }));
     function libraryFilters() {

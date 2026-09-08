@@ -11,16 +11,16 @@ try {
     $setup=auth_config()===null;$logged=authenticated();$csrf=$_SESSION['csrf'];session_write_close();
 }catch(Throwable $e){http_response_code(503);$fatal=true;$error=$e instanceof FleuryError?$e->getMessage():'Le serveur PHP ne peut pas initialiser le site. Utilise PHP 8.2 ou supérieur et vérifie les droits du dossier parent de public_html.';}
 ?><!doctype html>
-<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="csrf-token" content="<?=html($csrf)?>"><title>Fleury — Mes médias Discord</title><link rel="icon" href="assets/favicon.svg"><link rel="stylesheet" href="assets/style.css?v=5"><script type="module" src="assets/app.js?v=5"></script></head>
-<body><header class="topbar"><a class="brand" href="./"><span class="brand-icon">F</span>fleury<span class="brand-label">MÉDIAS DISCORD</span></a><span class="private">Espace privé</span></header>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="csrf-token" content="<?=html($csrf)?>"><title>Discord Media Extractor Mobile — Archives privées</title><meta name="description" content="Extracteur de médias Discord pour mobile : photos, vidéos, audios, aperçus privés et téléchargements ZIP par lots sur votre hébergement."><link rel="icon" href="assets/favicon.svg?v=6"><link rel="stylesheet" href="assets/style.css?v=6"><script type="module" src="assets/app.js?v=6"></script></head>
+<body><header class="topbar"><a class="brand" href="./"><span class="brand-icon" aria-hidden="true">DM</span><span class="brand-copy">Discord Media<span class="brand-subtitle">Extractor Mobile</span></span></a><span class="private">Espace privé</span></header>
 <?php if(!$logged): ?>
-<main class="workspace gate"><p class="eyebrow">FLEURY SUR TON HÉBERGEMENT</p><h1><?=$setup?'Bienvenue chez toi.':'Ton espace privé.'?></h1><section class="panel connection">
+<main class="workspace gate"><p class="eyebrow">TES MÉDIAS DISCORD SUR TON HÉBERGEMENT</p><h1><?=$setup?'Bienvenue chez toi.':'Ton espace privé.'?></h1><section class="panel connection">
 <?php if($fatal): ?><h2>Configuration à terminer</h2><p class="error"><?=html($error)?></p>
 <?php else: ?><h2><?=$setup?'Créer mon accès':'Ouvrir mes sauvegardes'?></h2>
 <?php if($setup): ?><p>Dans le gestionnaire de fichiers Hostinger, ouvre <strong>fleury-private</strong>, à côté de <strong>public_html</strong>, puis copie le contenu de <strong>setup-code.txt</strong>.</p><p class="muted">Ce code prouve que tu gères l’hébergement. Il est supprimé après la création de ton accès.</p><?php endif; ?>
 <form method="post" action="./"><input type="hidden" name="csrf" value="<?=html($csrf)?>">
 <?php if($setup): ?><label for="setup-code">Code d’installation Hostinger</label><input id="setup-code" name="setup_code" type="password" autocomplete="off" required><?php endif; ?>
-<label for="site-password"><?=$setup?'Choisis ton mot de passe du site':'Mot de passe du site'?></label><input id="site-password" name="password" type="password" autocomplete="<?=$setup?'new-password':'current-password'?>" <?=$setup?'minlength="12"':''?> maxlength="72" required><p class="muted">Ce mot de passe est distinct de ton mot de passe Discord.</p><button class="button primary" type="submit"><?=$setup?'Créer mon accès privé':'Entrer dans Fleury'?></button></form>
+<label for="site-password"><?=$setup?'Choisis ton mot de passe du site':'Mot de passe du site'?></label><input id="site-password" name="password" type="password" autocomplete="<?=$setup?'new-password':'current-password'?>" <?=$setup?'minlength="12"':''?> maxlength="72" required><p class="muted">Ce mot de passe est distinct de ton mot de passe Discord.</p><button class="button primary" type="submit"><?=$setup?'Créer mon accès privé':'Ouvrir mes archives'?></button></form>
 <?php if($error): ?><p class="error" role="alert"><?=html($error)?></p><?php endif; ?><?php endif; ?></section></main>
 <?php else: ?>
 <main id="workspace" class="workspace"><div class="heading"><div><p class="eyebrow">TES MÉDIAS, AU MÊME ENDROIT</p><h1>Du salon à tes fichiers.</h1><p class="intro">Photos, vidéos et audios, sur ton appareil ou ton hébergement.</p></div><button id="lock-site" class="button secondary">Verrouiller le site</button></div>
@@ -33,7 +33,7 @@ try {
 <li>Dans Safari, ouvre <a href="https://discord.com/app" target="_blank" rel="noopener noreferrer">Discord Web</a>, demande la version pour ordinateur depuis le menu de la page, puis connecte-toi à ton compte.</li>
 <li>Dans ce même onglet Discord, ouvre Web Inspector depuis le menu des extensions de Safari et autorise son accès à discord.com. Choisis <strong>Console</strong>. Si l’inspecteur ne s’ouvre pas, recharge la page.</li>
 <li>Copie le code ci-dessous, colle-le dans la console de l’onglet Discord, puis exécute-le.</li>
-<li>Copie le jeton affiché, reviens sur Fleury et colle-le dans le champ « Ton jeton Discord ».</li>
+<li>Copie le jeton affiché, reviens sur Discord Media Extractor Mobile et colle-le dans le champ « Ton jeton Discord ».</li>
 </ol>
 <p>Ce code lit la session de ton propre compte. Le jeton donne accès à ton compte : garde-le privé. Le bouton ci-dessous copie seulement le code.</p>
 <label for="token-help-code">Code à exécuter dans l’onglet Discord</label>

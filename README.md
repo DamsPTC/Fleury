@@ -1,10 +1,10 @@
-# Fleury
+# Discord Media Extractor Mobile
 
 *Mobile-friendly, self-hosted Discord media extractor and downloader. Archive channel images, videos and audio; browse private previews and download ZIP batches. PHP, with no Node.js server required.*
 
 **Archivez les pièces jointes de vos salons Discord sur votre hébergement, puis consultez et téléchargez vos médias depuis votre navigateur.**
 
-Fleury est une application web auto-hébergée en PHP, avec une interface en français adaptée au mobile. Elle permet de parcourir les salons accessibles à votre compte et de conserver leurs photos, vidéos et fichiers audio dans une bibliothèque privée.
+Discord Media Extractor Mobile est une application web auto-hébergée en PHP, avec une interface en français adaptée au mobile. Elle permet de parcourir les salons accessibles à votre compte et de conserver leurs photos, vidéos et fichiers audio dans une bibliothèque privée.
 
 Le code peut être publié sur GitHub ; chaque installation reste un espace personnel protégé par un mot de passe. Cette version ne propose pas de comptes utilisateurs séparés ni d’isolation entre plusieurs personnes utilisant une même installation.
 
@@ -75,6 +75,9 @@ Filtrez par serveur ou salon, recherchez un nom, puis choisissez le tri et le no
 Pour télécharger plusieurs médias, sélectionnez-les puis choisissez **Lots de la sélection**, ou utilisez **Lots de tous les résultats** pour prendre l’ensemble des résultats filtrés, y compris les autres pages. Un bouton est proposé pour chaque ZIP ; enregistrez chaque lot depuis votre navigateur. La sélection reste dans la page jusqu’à son rechargement.
 
 ## Configuration et stockage
+
+Le projet portait auparavant le nom **Fleury**. Les identifiants techniques `fleury-private`, `FLEURY_DATA_DIR` et `FLEURY_STORAGE_LIMIT_BYTES` restent compatibles avec les installations existantes : le changement de nom ne nécessite pas de déplacer vos sauvegardes.
+
 
 Ces réglages sont des **variables d’environnement du serveur PHP**. Le code ne charge pas automatiquement de fichier `.env`.
 

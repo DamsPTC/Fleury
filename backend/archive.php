@@ -11,7 +11,7 @@ function serve_archive(mixed $keys): never {
         $n=(int)filesize($base.'.blob');$size+=$n;if($size>1073741824)throw new FleuryError(413,'Ce lot dépasse 1 Go. Réduis la sélection ou utilise les lots automatiques.');
         $name=explode('_',$key)[2].'-'.clean_name($m['name']);$files[]=['path'=>$base.'.blob','size'=>$n,'name'=>$name];$length+=30+strlen($name)+$n+16+46+strlen($name);
     }
-    @set_time_limit(0);header('Content-Type: application/zip');header('Content-Length: '.$length);header('Content-Disposition: attachment; filename="fleury-'.gmdate('Ymd-His').'.zip"');
+    @set_time_limit(0);header('Content-Type: application/zip');header('Content-Length: '.$length);header('Content-Disposition: attachment; filename="discord-media-'.gmdate('Ymd-His').'.zip"');
     $central='';$offset=0;
     foreach($files as $file){
         $name=$file['name'];$n=$file['size'];$flags=0x0808;
