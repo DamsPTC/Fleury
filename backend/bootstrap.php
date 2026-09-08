@@ -71,10 +71,16 @@ function start_session(): void {
     if (!empty($_SESSION['auth_until']) && $_SESSION['auth_until'] < time()) unset($_SESSION['auth_until']);
 }
 function authenticated(): bool { return !empty($_SESSION['auth_until']) && $_SESSION['auth_until'] >= time() && auth_config() !== null; }
-function csrf_check(): void {
+function csrf_check(bool $privateDownload = false): void {
     $provided = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($_POST['csrf'] ?? '');
     if (!is_string($provided) || !hash_equals($_SESSION['csrf'] ?? '', $provided)) throw new FleuryError(403, 'La session de la page a expiré. Recharge la page.');
-    if (($_SERVER['HTTP_SEC_FETCH_SITE'] ?? '') === 'cross-site') throw new FleuryError(403, 'Requête externe refusée.');
+    // A private download still requires the authenticated session and its CSRF secret.
+    // Safari download navigations can supply an opaque Origin / cross-site fetch hint.
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || ($_SERVER['SERVER_PORT'] ?? '') == 443;
+    $expectedOrigin = ($https ? 'https://' : 'http://') . strtolower($_SERVER['HTTP_HOST'] ?? '');
+    if ($origin !== '' && $origin !== 'null' && strtolower($origin) !== $expectedOrigin) throw new FleuryError(403, 'Requête externe refusée.');
+    if (!$privateDownload && ($_SERVER['HTTP_SEC_FETCH_SITE'] ?? '') === 'cross-site') throw new FleuryError(403, 'Requête externe refusée.');
 }
 function login_attempt(): void {
     $ip = hash('sha256', $_SERVER['REMOTE_ADDR'] ?? 'unknown');

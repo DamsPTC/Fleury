@@ -11,7 +11,7 @@ try {
     $setup=auth_config()===null;$logged=authenticated();$csrf=$_SESSION['csrf'];session_write_close();
 }catch(Throwable $e){http_response_code(503);$fatal=true;$error=$e instanceof FleuryError?$e->getMessage():'Le serveur PHP ne peut pas initialiser le site. Utilise PHP 8.2 ou supérieur et vérifie les droits du dossier parent de public_html.';}
 ?><!doctype html>
-<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="csrf-token" content="<?=html($csrf)?>"><title>Fleury — Mes médias Discord</title><link rel="icon" href="assets/favicon.svg"><link rel="stylesheet" href="assets/style.css?v=2"><script type="module" src="assets/app.js?v=3"></script></head>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="csrf-token" content="<?=html($csrf)?>"><title>Fleury — Mes médias Discord</title><link rel="icon" href="assets/favicon.svg"><link rel="stylesheet" href="assets/style.css?v=3"><script type="module" src="assets/app.js?v=4"></script></head>
 <body><header class="topbar"><a class="brand" href="./"><span class="brand-icon">F</span>fleury<span class="brand-label">MÉDIAS DISCORD</span></a><span class="private">Espace privé</span></header>
 <?php if(!$logged): ?>
 <main class="workspace gate"><p class="eyebrow">FLEURY SUR TON HÉBERGEMENT</p><h1><?=$setup?'Bienvenue chez toi.':'Ton espace privé.'?></h1><section class="panel connection">
@@ -24,7 +24,45 @@ try {
 <?php if($error): ?><p class="error" role="alert"><?=html($error)?></p><?php endif; ?><?php endif; ?></section></main>
 <?php else: ?>
 <main id="workspace" class="workspace"><div class="heading"><div><p class="eyebrow">TES MÉDIAS, AU MÊME ENDROIT</p><h1>Du salon à tes fichiers.</h1><p class="intro">Photos, vidéos et audios, sur ton appareil ou ton hébergement.</p></div><button id="lock-site" class="button secondary">Verrouiller le site</button></div>
-<div class="layout"><aside class="connection panel"><div class="section-number">01 <span>COMPTE DISCORD</span></div><h2 id="connection-title">Lier ton compte</h2><form id="connect-form"><label for="token">Ton jeton Discord</label><input id="token" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Colle ton jeton ici"><button id="connect" class="button primary" type="submit">Connecter / reprendre ma session</button></form><div id="account" hidden><strong id="account-name"></strong><p class="muted">Session de cet onglet</p><button id="disconnect" class="button secondary">Déconnecter et effacer le jeton</button></div><div class="session-note"><p>Le jeton reste dans la session de cet onglet. Il transite en HTTPS par le serveur sans être enregistré. La déconnexion l’efface.</p></div><p class="risk">Discord interdit l’automatisation des comptes personnels et peut fermer le compte.</p></aside>
+<div class="layout"><aside class="connection panel"><div class="section-number">01 <span>COMPTE DISCORD</span></div><h2 id="connection-title">Lier ton compte</h2><form id="connect-form"><label for="token">Ton jeton Discord</label><button id="open-token-help" class="text-button" type="button" aria-haspopup="dialog" aria-controls="token-help">Comment trouver mon jeton sur iPhone ?</button><input id="token" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Colle ton jeton ici"><button id="connect" class="button primary" type="submit">Connecter / reprendre ma session</button></form><div id="account" hidden><strong id="account-name"></strong><p class="muted">Session de cet onglet</p><button id="disconnect" class="button secondary">Déconnecter et effacer le jeton</button></div><div class="session-note"><p>Le jeton reste dans la session de cet onglet. Il transite en HTTPS par le serveur sans être enregistré. La déconnexion l’efface.</p></div><p class="risk">Discord interdit l’automatisation des comptes personnels et peut fermer le compte.</p></aside>
+
+<dialog id="token-help" aria-labelledby="token-help-title">
+<div class="help-heading"><h2 id="token-help-title">Trouver mon jeton sur iPhone</h2><button id="close-token-help" class="button secondary" type="button" autofocus>Fermer</button></div>
+<ol>
+<li>Installe <a href="https://apps.apple.com/fr/app/web-inspector/id1584825745" target="_blank" rel="noopener noreferrer">Web Inspector, par And a Dinosaur</a>, puis active l’extension dans Réglages → Apps → Safari → Extensions (ou Réglages → Safari selon ta version d’iOS).</li>
+<li>Dans Safari, ouvre <a href="https://discord.com/app" target="_blank" rel="noopener noreferrer">Discord Web</a>, demande la version pour ordinateur depuis le menu de la page, puis connecte-toi à ton compte.</li>
+<li>Dans ce même onglet Discord, ouvre Web Inspector depuis le menu des extensions de Safari et autorise son accès à discord.com. Choisis <strong>Console</strong>. Si l’inspecteur ne s’ouvre pas, recharge la page.</li>
+<li>Copie le code ci-dessous, colle-le dans la console de l’onglet Discord, puis exécute-le.</li>
+<li>Copie le jeton affiché, reviens sur Fleury et colle-le dans le champ « Ton jeton Discord ».</li>
+</ol>
+<p>Ce code lit la session de ton propre compte. Le jeton donne accès à ton compte : garde-le privé. Le bouton ci-dessous copie seulement le code.</p>
+<label for="token-help-code">Code à exécuter dans l’onglet Discord</label>
+<textarea id="token-help-code" readonly spellcheck="false" rows="12">(() =&gt; {
+  const cadre = document.createElement(&quot;iframe&quot;);
+  cadre.hidden = true;
+  document.body.appendChild(cadre);
+
+  try {
+    const valeur = cadre.contentWindow.localStorage.getItem(&quot;token&quot;);
+
+    if (!valeur) {
+      console.log(&quot;Jeton absent du stockage local.&quot;);
+      return;
+    }
+
+    let jeton = valeur;
+    try { jeton = JSON.parse(valeur); } catch {}
+
+    console.log(jeton);
+  } catch {
+    console.log(&quot;Lecture du stockage bloquée par le navigateur.&quot;);
+  } finally {
+    cadre.remove();
+  }
+})();</textarea>
+<button id="copy-token-code" class="button primary" type="button">Copier le code</button><p id="token-copy-status" role="status" aria-live="polite"></p>
+<p class="muted">« Jeton absent » ou « Lecture bloquée » ? Vérifie que la console est ouverte sur Discord Web et que tu y es connecté. Cette méthode dépend du stockage utilisé par Discord et peut ne pas fonctionner.</p>
+</dialog>
 <section class="main-panel panel"><div class="tab-bar" role="tablist" aria-label="Source des médias"><button id="discord-tab" role="tab" aria-selected="true" aria-controls="discord-panel">Depuis Discord</button><button id="saved-tab" role="tab" aria-selected="false" aria-controls="saved-panel" tabindex="-1">Sur le site</button></div>
 <div id="discord-panel" role="tabpanel" aria-labelledby="discord-tab"><div class="section-number">02 <span>SOURCE DES MÉDIAS</span></div><h2>Choisis où chercher.</h2><div class="selectors"><div><label for="guild">Serveur</label><select id="guild" disabled><option value="">Choisir un serveur</option></select></div><div><label for="channel">Salon</label><select id="channel" disabled><option value="">Choisir un salon</option></select></div></div><details class="manual"><summary>Un fil ou un salon manque dans la liste ?</summary><p>Colle son identifiant Discord. Chaque fil ou publication de forum se parcourt séparément.</p><div class="manual-row"><input id="manual" inputmode="numeric" aria-label="Identifiant du salon ou fil" placeholder="Identifiant du salon ou fil" disabled><button id="use-manual" class="button secondary" disabled>Utiliser</button></div><p id="manual-choice"></p></details>
 <button id="scan" class="button primary scan" disabled>Rechercher tous les médias</button><div class="metrics"><div><strong id="media-count">0</strong><span>médias trouvés</span></div><div><strong id="media-size">0 ko</strong><span>volume estimé</span></div><div><strong id="message-count">0</strong><span>messages parcourus</span></div></div>

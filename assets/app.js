@@ -5,6 +5,19 @@ const SESSION = 'fleury.discord.session';
 const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
 const bytes = n => n >= 1e9 ? (n / 1e9).toFixed(2) + ' Go' : n >= 1e6 ? (n / 1e6).toFixed(1) + ' Mo' : Math.round(n / 1e3) + ' ko';
 if ($('workspace')) {
+    const tokenHelp = $('token-help');
+    $('open-token-help').addEventListener('click', () => tokenHelp.showModal());
+    $('close-token-help').addEventListener('click', () => tokenHelp.close());
+    $('copy-token-code').addEventListener('click', async () => {
+        const code = $('token-help-code');
+        try {
+            await navigator.clipboard.writeText(code.value);
+            $('token-copy-status').textContent = 'Code copié. Colle-le dans la console de Discord Web.';
+        } catch {
+            code.focus(); code.select(); code.setSelectionRange(0, code.value.length);
+            $('token-copy-status').textContent = 'Copie automatique indisponible. Maintiens le texte sélectionné puis choisis Copier.';
+        }
+    });
     let token = '', user = null, busy = false, stopped = false, controller = null;
     let channel = '', before = null, done = false, items = [], messages = 0, shown = 30;
     const failures = new Map(), successes = new Set();

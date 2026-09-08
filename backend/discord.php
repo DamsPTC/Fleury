@@ -111,7 +111,7 @@ function save_chunk(array $a,string $key,int $chunkBytes=4194304): array {
             curl_setopt($c,CURLOPT_HEADERFUNCTION,static function($c,$line)use(&$headers){if(str_starts_with($line,'HTTP/'))$headers=[];if(str_contains($line,':')){[$k,$v]=explode(':',$line,2);$headers[strtolower(trim($k))]=trim($v);}return strlen($line);});
             curl_setopt($c,CURLOPT_WRITEFUNCTION,static function($c,$chunk)use($out,&$bytes,$length){$n=strlen($chunk);if($bytes+$n>$length)return 0;$written=fwrite($out,$chunk);$bytes+=$written;return $written;});
             $ok=curl_exec($c);$status=curl_getinfo($c,CURLINFO_RESPONSE_CODE);$errno=curl_errno($c);curl_close($c);fclose($out);
-            if($ok===false||!valid_chunk($status,$bytes,$offset,$length,$expected,$headers['content-range']??''))throw new FleuryError(502,'Transfert incomplet ou plage invalide : HTTP '.$status.', cURL '.$errno.', début '.$offset.', reçu '.$bytes.' / demandé '.$length.' octets.');
+            if($ok===false||!valid_chunk($status,$bytes,$offset,$length,$expected,$headers['content-range']??''))throw new FleuryError(502,'Transfert incomplet ou plage invalide : HTTP '.$status.', cURL '.$errno.', début '.$offset.', reçu '.$bytes.' / demandé '.$length.' octets ; Content-Range : '.substr(preg_replace('/[^a-zA-Z0-9 \/\-*]/', '', $headers['content-range']??'absent'),0,100).'.');
             $dest=fopen($base.'.part','ab');$source=fopen($tmp,'rb');$copied=stream_copy_to_stream($source,$dest);fclose($source);fclose($dest);
             if($copied!==$bytes)throw new FleuryError(507,'Écriture interrompue. Libère de la place puis reprends.');
             $offset+=$bytes;

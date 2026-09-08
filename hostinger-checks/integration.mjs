@@ -36,6 +36,14 @@ r=await req('api.php',{method:'POST',headers:{'Content-Type':'application/json',
 const key='123456789012345678_223456789012345678_323456789012345678';
 php.writeFile('/site/fleury-private/media/'+key+'.blob','example media bytes');php.writeFile('/site/fleury-private/media/'+key+'.json',JSON.stringify({name:'image.png',size:19,savedAt:'2026-09-07'}));
 r=await req('download.php',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({csrf,key}).toString()});assert.equal(r.httpStatusCode,200);assert.equal(r.text,'example media bytes');
+// Download navigation metadata must not override a valid private session + CSRF.
+for (const origin of ['', 'null', 'https://fleury.test']) {
+ r=await req('download.php',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},$_SERVER:{HTTP_SEC_FETCH_SITE:'cross-site',HTTP_ORIGIN:origin},body:new URLSearchParams({csrf,key}).toString()});assert.equal(r.httpStatusCode,200);assert.equal(r.text,'example media bytes');
+}
+for (const [origin,secret] of [['https://evil.test',csrf],['null','wrong']]) {
+ r=await req('download.php',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},$_SERVER:{HTTP_SEC_FETCH_SITE:'cross-site',HTTP_ORIGIN:origin},body:new URLSearchParams({csrf:secret,key}).toString()});assert.equal(r.httpStatusCode,403);
+}
+r=await req('api.php',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},$_SERVER:{HTTP_SEC_FETCH_SITE:'cross-site'},body:'{"action":"library"}'});assert.equal(r.httpStatusCode,403);
 r=await req('download.php',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({csrf,key:'../auth'}).toString()});assert.equal(r.httpStatusCode,400);
 const security=await php.run({code:`<?php require '/site/public_html/backend/discord.php';
 $bad=['http://cdn.discordapp.com/attachments/a','https://evil.test/attachments/a','https://cdn.discordapp.com.evil.test/attachments/a','https://cdn.discordapp.com:8443/attachments/a','https://user@cdn.discordapp.com/attachments/a','https://cdn.discordapp.com/api/users'];
