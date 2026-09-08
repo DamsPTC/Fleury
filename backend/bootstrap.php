@@ -52,7 +52,7 @@ function security_headers(): void {
     header('X-Content-Type-Options: nosniff');
     header('Referrer-Policy: no-referrer');
     header('X-Frame-Options: DENY');
-    header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+    header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
 }
 function start_session(): void {

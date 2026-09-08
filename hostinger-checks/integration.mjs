@@ -9,7 +9,7 @@ const {loadNodeRuntime}=await import(runtime?path.join(runtime,'@php-wasm/node/i
 const {PHP}=await import(runtime?path.join(runtime,'@php-wasm/universal/index.js'):'@php-wasm/universal');
 const php=new PHP(await loadNodeRuntime('8.2', {emscriptenOptions:{processId:process.pid}}));
 php.mkdir('/site/public_html/backend');
-for(const file of ['index.php','api.php','download.php','backend/bootstrap.php','backend/discord.php'])php.writeFile('/site/public_html/'+file,fs.readFileSync(path.join(root,file)));
+for(const file of ['index.php','api.php','download.php','backend/bootstrap.php','backend/discord.php','backend/library.php','backend/archive.php','media.php'])php.writeFile('/site/public_html/'+file,fs.readFileSync(path.join(root,file)));
 let cookie='';
 const server={DOCUMENT_ROOT:'/site/public_html',HTTPS:'on',SERVER_PORT:'443',REMOTE_ADDR:'192.0.2.1',HTTP_HOST:'fleury.test'};
 async function req(file,options={}){
@@ -45,6 +45,26 @@ for (const [origin,secret] of [['https://evil.test',csrf],['null','wrong']]) {
 }
 r=await req('api.php',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},$_SERVER:{HTTP_SEC_FETCH_SITE:'cross-site'},body:'{"action":"library"}'});assert.equal(r.httpStatusCode,403);
 r=await req('download.php',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({csrf,key:'../auth'}).toString()});assert.equal(r.httpStatusCode,400);
+// Catalog backfill, filtered pagination and server-side archive plans.
+let catalog=await php.run({$_SERVER:server,code:`<?php require '/site/public_html/backend/discord.php';remember_sources([['id'=>'923456789012345678','name'=>'Serveur test']],[['id'=>'123456789012345678','name'=>'photos']],'923456789012345678');echo 'OK';`});assert.equal(catalog.errors,'');assert.equal(catalog.text,'OK');
+r=await req('api.php',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({action:'library',guild:'923456789012345678',channel:'123456789012345678'})});
+let library=JSON.parse(r.text);assert.equal(library.total,1);assert.equal(library.items[0].guildName,'Serveur test');assert.equal(library.items[0].channelName,'photos');assert.equal(library.items[0].previewType,'image/png');
+for(let i=0;i<25;i++){
+ const k='123456789012345678_223456789012345678_'+String(423456789012345678n+BigInt(i));
+ php.writeFile('/site/fleury-private/media/'+k+'.blob','test');php.writeFile('/site/fleury-private/media/'+k+'.json',JSON.stringify({name:'extra-'+i+'.png',size:4,savedAt:'2026-09-08'}));
+}
+r=await req('api.php',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({action:'library',page:2,limit:24})});library=JSON.parse(r.text);assert.equal(library.total,26);assert.equal(library.pages,2);assert.equal(library.items.length,2);
+r=await req('api.php',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({action:'library',query:'missing'})});assert.equal(JSON.parse(r.text).total,0);
+r=await req('api.php',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({action:'library_batches',query:'image.png'})});assert.deepEqual(JSON.parse(r.text).batches[0].keys,[key]);
+// Safari media byte ranges and session protection.
+r=await req('media.php',{relativeUri:'/media.php?key='+key,$_SERVER:{HTTP_RANGE:'bytes=2-5'}});assert.equal(r.httpStatusCode,206);assert.equal(r.text,'ampl');assert.equal(r.headers['content-type'][0],'image/png');
+r=await req('media.php',{relativeUri:'/media.php?key='+key,$_SERVER:{HTTP_RANGE:'bytes=-5'}});assert.equal(r.text,'bytes');assert.equal(r.httpStatusCode,206);
+r=await req('media.php',{relativeUri:'/media.php?key='+key,$_SERVER:{HTTP_RANGE:'bytes=99-100'}});assert.equal(r.httpStatusCode,416);
+r=await req('media.php',{relativeUri:'/media.php?key='+key,$_SERVER:{HTTP_SEC_FETCH_SITE:'cross-site'}});assert.equal(r.httpStatusCode,403);
+// Validate the streamed ZIP with an independent ZIP reader after this script.
+r=await req('download.php',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({csrf,keys:JSON.stringify([key])}).toString()});assert.equal(r.httpStatusCode,200);assert.equal(r.headers['content-type'][0],'application/zip');
+fs.writeFileSync('/tmp/fleury-test-archive.zip',r.bytes);assert.equal(Number(r.headers['content-length'][0]),r.bytes.length);
+r=await req('download.php',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({csrf,keys:JSON.stringify(['../auth'])}).toString()});assert.equal(r.httpStatusCode,400);
 const security=await php.run({code:`<?php require '/site/public_html/backend/discord.php';
 $bad=['http://cdn.discordapp.com/attachments/a','https://evil.test/attachments/a','https://cdn.discordapp.com.evil.test/attachments/a','https://cdn.discordapp.com:8443/attachments/a','https://user@cdn.discordapp.com/attachments/a','https://cdn.discordapp.com/api/users'];
 foreach($bad as $u){try{media_url($u);echo 'FAILED';}catch(FleuryError $e){}}
@@ -70,6 +90,9 @@ if(attachment($token,$b)['url']!==$a['url']||count($GLOBALS['calls'])!==1)throw 
 if($GLOBALS['calls'][0]!=='/channels/'.$b['channel'].'/messages?around='.$b['message'].'&limit=3')throw new Exception('Wrong endpoint');
 attachment('different-session-token',$b);if(count($GLOBALS['calls'])!==2)throw new Exception('Session cache leak');
 $b['message']='423456789012345678';try{attachment($token,$b);throw new Exception('Wrong message accepted');}catch(FleuryError $e){if($e->status!==404)throw $e;}
+if(cdn_total(206,399747,0,399747,399747,'bytes 0-399746/1980567')!==1980567)throw new Exception('CDN actual size rejected');
+if(cdn_total(206,10,10,10,30,'bytes 10-19/40')!==null)throw new Exception('Changed representation during resume accepted');
+if(cdn_total(206,10,0,10,10,'bytes 0-9/5')!==null)throw new Exception('Impossible total accepted');
 if(!valid_chunk(206,1024,0,4096,8192,'bytes 0-1023/8192'))throw new Exception('Short valid range rejected');
 if(valid_chunk(206,1024,0,4096,8192,'bytes 1024-2047/8192'))throw new Exception('Wrong offset accepted');
 if(valid_chunk(206,1024,0,4096,8192,'bytes 0-2047/8192'))throw new Exception('Truncated response accepted');
@@ -77,5 +100,30 @@ if(valid_chunk(200,1024,1024,4096,8192,''))throw new Exception('Ignored range ac
 if(!valid_chunk(200,1024,0,4096,1024,''))throw new Exception('Whole small file rejected');
 echo 'PASS';`});
 assert.equal(cacheTest.errors,'');assert.equal(cacheTest.text,'PASS');
-console.log('PASS: PHP auth, CSRF, private downloads, CDN restrictions, cached attachment links, expired-link renewal, session isolation and exact-message matching.');
+// Exercise save_chunk across separate ranges using a local CDN fixture only.
+let transferSource=fs.readFileSync(path.join(root,'backend/discord.php'),'utf8');
+for(const name of ['curl_handle','curl_setopt','curl_exec','curl_getinfo','curl_errno','curl_close'])transferSource=transferSource.replaceAll(name+'(', 'fixture_'+name+'(');
+transferSource=transferSource.replace('function fixture_curl_handle(', 'function unused_fixture_curl_handle(');
+php.writeFile('/site/public_html/backend/transfer-fixture.php',transferSource);
+const transferTest=await php.run({$_SERVER:server,code:`<?php
+foreach(['CURLOPT_RANGE','CURLOPT_HEADERFUNCTION','CURLOPT_WRITEFUNCTION','CURLINFO_RESPONSE_CODE'] as $i=>$constant)if(!defined($constant))define($constant,$i+1000);
+function fixture_curl_handle($url){return (object)['options'=>[]];}
+function fixture_curl_setopt($c,$k,$v){$c->options[$k]=$v;}
+function fixture_curl_exec($c){
+    [$start,$end]=array_map('intval',explode('-',$c->options[CURLOPT_RANGE]));$body='abcdefghijklmnop';$end=min($end,strlen($body)-1);
+    ($c->options[CURLOPT_HEADERFUNCTION])($c,"HTTP/2 206\\r\\n");
+    ($c->options[CURLOPT_HEADERFUNCTION])($c,'Content-Range: bytes '.$start.'-'.$end.'/'.strlen($body));
+    ($c->options[CURLOPT_WRITEFUNCTION])($c,substr($body,$start,$end-$start+1));return true;
+}
+function fixture_curl_getinfo($c,$k){return 206;}function fixture_curl_errno($c){return 0;}function fixture_curl_close($c){}
+require '/site/public_html/backend/transfer-fixture.php';
+$a=['filename'=>'actual.png','size'=>5,'url'=>'https://cdn.discordapp.com/attachments/a/b/actual.png','content_type'=>'image/png'];
+$key='123456789012345678_823456789012345678_723456789012345678';
+$one=save_chunk($a,$key);if($one['saved']||$one['offset']!==5||$one['total']!==16)throw new Exception('First range did not adopt CDN total');
+clearstatcache();$two=save_chunk($a,$key);if(!$two['saved']||$two['offset']!==16)throw new Exception('Resume failed');
+if(file_get_contents(private_dir().'/media/'.$key.'.blob')!=='abcdefghijklmnop')throw new Exception('Corrupted media');
+$meta=json_decode(file_get_contents(private_dir().'/media/'.$key.'.json'),true);if($meta['size']!==16||$meta['channelName']!=='photos')throw new Exception('Metadata missing');
+clearstatcache();$three=save_chunk($a,$key);if(!$three['existing']||$three['total']!==16)throw new Exception('Saved actual size not reused');echo 'PASS';`});
+assert.equal(transferTest.errors,'');assert.equal(transferTest.text,'PASS');
+console.log('PASS: PHP auth, CSRF, previews/ranges, streamed ZIP, source backfill, filtered pagination, bulk plans, CDN size correction and resumed transfer integrity.');
 php.exit();

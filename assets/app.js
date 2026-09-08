@@ -21,7 +21,9 @@ if ($('workspace')) {
     let token = '', user = null, busy = false, stopped = false, controller = null;
     let channel = '', before = null, done = false, items = [], messages = 0, shown = 30;
     const failures = new Map(), successes = new Set();
-    let saveIndex = 0, zipIndex = 0, zipPart = 0, objectURL = '', libraryCursor = null;
+    let libraryPage=1, libraryPages=1, libraryItems=[], libraryLoaded=false;
+    const selectedLibrary=new Map();
+    let saveIndex = 0, zipIndex = 0, zipPart = 0, objectURL = '';
     try { token = sessionStorage.getItem(SESSION) || ''; } catch { /* Memory-only fallback. */ }
     function note(text) { $('status').hidden = false; $('message').textContent = text; }
     function clearToken() { token = ''; $('token').value = ''; try { sessionStorage.removeItem(SESSION); } catch {} }
@@ -39,7 +41,10 @@ if ($('workspace')) {
         $('save').disabled = busy || !user || !items.length || saveIndex >= items.length;
         $('prepare').disabled = busy || !user || !items.length || zipIndex >= items.length;
         $('load-library').disabled = busy;
-        $('more-library').disabled = busy;
+        $('more-library').disabled = busy || libraryPage>=libraryPages;
+        $('previous-library').disabled=busy||libraryPage<=1;
+        for(const id of ['go-library','library-guild','library-channel','library-query','library-sort','library-limit','library-page','select-page','download-filtered','clear-selection'])$(id).disabled=busy;
+        $('download-selection').disabled=busy||!selectedLibrary.size;
         $('connect-form').hidden = !!user;
         $('account').hidden = !user;
         $('connection-title').textContent = user ? 'Compte connecté' : 'Lier ton compte';
@@ -67,7 +72,7 @@ if ($('workspace')) {
             if (stopped) throw new DOMException('Pause', 'AbortError');
             controller = new AbortController();
             const headers = { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf };
-            if (!['library', 'stored', 'logout'].includes(body.action)) headers['X-Discord-Token'] = token;
+            if (!['library', 'library_batches', 'stored', 'logout'].includes(body.action)) headers['X-Discord-Token'] = token;
             const res = await fetch('api.php', { method: 'POST', headers, credentials: 'same-origin', cache: 'no-store', body: JSON.stringify(body), signal: controller.signal });
             if (res.ok) return binary ? res.blob() : res.json();
             const data = await res.json().catch(() => ({ error: 'Réponse illisible du serveur. Vérifie le déploiement Hostinger.' }));
@@ -203,7 +208,16 @@ if ($('workspace')) {
                 await saveOne(m); clearReady(); $('download-ready').append(fileForm(`${m.channel}_${m.message}_${m.id}`, m.name)); i++; break;
             }
             note(`Préparation ${i + 1}/${items.length} : ${m.name}`);
-            const blob = await request({ action: 'file', channel: m.channel, message: m.message, id: m.id }, true);
+            let blob;
+            try { blob=await request({ action:'file',channel:m.channel,message:m.message,id:m.id },true); }
+            catch(e) {
+                if(e.status!==413)throw e;
+                m.size=32*1024*1024+1;
+                if(files.length)break;
+                await saveOne(m);clearReady();$('download-ready').append(fileForm(`${m.channel}_${m.message}_${m.id}`,m.name));i++;break;
+            }
+            m.size=blob.size;
+            if(files.length && total+blob.size>32*1024*1024)break;
             if (stopped) throw new DOMException('Pause', 'AbortError');
             files.push({ name: `${m.message}_${m.id}_${m.name}`, data: new Uint8Array(await blob.arrayBuffer()) }); total += blob.size; i++;
             if (i < items.length) await wait(400);
@@ -211,24 +225,82 @@ if ($('workspace')) {
         if (files.length) { zipPart++; readyBlob(zip(files), `Fleury-${channel}-${String(zipPart).padStart(3, '0')}.zip`); }
         zipIndex = i; note(`Téléchargement prêt (${i}/${items.length} médias préparés). Enregistre-le avant de préparer le suivant.`);
     }));
-    async function library(more = false) {
+    function libraryFilters() {
+        return {guild:$('library-guild').value,channel:$('library-channel').value,query:$('library-query').value,sort:$('library-sort').value,limit:Number($('library-limit').value)};
+    }
+    function updateSelection() {
+        $('download-selection').textContent=`Lots de la sélection (${selectedLibrary.size})`;
+        $('download-selection').disabled=busy||!selectedLibrary.size;
+        for(const box of $('library-rows').querySelectorAll('input[type="checkbox"]'))box.checked=selectedLibrary.has(box.value);
+    }
+    function archiveForm(keys,label) {
+        const form=fileForm(keys[0],label);
+        const input=form.querySelector('input[name="key"]');input.name='keys';input.value=JSON.stringify(keys);
+        const button=form.querySelector('button');button.textContent=label;button.setAttribute('aria-label',label);return form;
+    }
+    function renderBatches(batches) {
+        $('library-batches').replaceChildren();
+        const intro=document.createElement('p');intro.textContent=batches.length ? `${batches.length} lot(s) prêt(s). Appuie sur chaque bouton pour l’enregistrer dans Fichiers.` : 'Aucun fichier dans ces résultats.';$('library-batches').append(intro);
+        for(const [i,b] of batches.entries()) {
+            if(b.key){const row=document.createElement('div');const name=document.createElement('p');name.textContent=b.name+' · '+bytes(b.size);row.append(name,fileForm(b.key,b.name));$('library-batches').append(row);}
+            else $('library-batches').append(archiveForm(b.keys,`Télécharger le lot ${i+1} · ${b.keys.length} fichiers · ${bytes(b.size)}`));
+        }
+    }
+    function selectionBatches() {
+        const batches=[];let keys=[],size=0;
+        for(const m of selectedLibrary.values()) {
+            if(keys.length&&(keys.length>=100||size+m.size>1073741824)){batches.push({keys,size});keys=[];size=0;}
+            if(m.size>1073741824){batches.push({key:m.key,name:m.name,size:m.size});continue;}
+            keys.push(m.key);size+=m.size;
+        }
+        if(keys.length)batches.push({keys,size});renderBatches(batches);
+    }
+    async function library(pageNumber=1) {
         await run('Chargement des sauvegardes', async () => {
-            const page = await request({ action: 'library', cursor: more ? libraryCursor : null });
-            if (!more) $('library-rows').replaceChildren();
-            for (const m of page.items) {
-                const row = document.createElement('div'); row.className = 'media-row'; const name = document.createElement('span'); name.textContent = m.name;
-                const size = document.createElement('small'); size.textContent = bytes(m.size); row.append(name, size, fileForm(m.key, m.name)); $('library-rows').append(row);
+            const page=await request({action:'library',...libraryFilters(),page:pageNumber});
+            libraryPage=page.page;libraryPages=page.pages;libraryItems=page.items;libraryLoaded=true;
+            for(const [id,values,label] of [['library-guild',page.guilds,'Tous les serveurs'],['library-channel',page.channels,'Tous les salons']]) {
+                const value=$(id).value;selectOptions($(id),values,label);if([...$(id).options].some(x=>x.value===value))$(id).value=value;
             }
-            if (!more && !page.items.length) { const p = document.createElement('p'); p.className = 'muted'; p.textContent = 'Aucun média sauvegardé pour le moment.'; $('library-rows').append(p); }
-            libraryCursor = page.cursor; $('more-library').hidden = libraryCursor === null;
+            $('library-rows').replaceChildren();
+            for(const m of page.items) {
+                const card=document.createElement('article');card.className='library-card';
+                const label=document.createElement('label');label.className='library-choice';
+                const box=document.createElement('input');box.type='checkbox';box.value=m.key;box.checked=selectedLibrary.has(m.key);box.addEventListener('change',()=>{if(box.checked)selectedLibrary.set(m.key,m);else selectedLibrary.delete(m.key);updateSelection();});
+                const name=document.createElement('span');name.textContent=m.name;label.append(box,name);
+                const source=document.createElement('p');source.className='muted';source.textContent=`${m.guildName||'Serveur non renseigné'} / #${m.channelName||m.channelId}`;
+                const preview=document.createElement('div');preview.className='library-preview';
+                if(m.previewType) {
+                    const kind=m.previewType.split('/')[0];const media=document.createElement(kind==='image'?'img':kind);media.src='media.php?key='+encodeURIComponent(m.key);
+                    if(kind==='image'){media.alt=m.name;media.loading='lazy';media.decoding='async';}
+                    else{media.controls=true;media.preload='metadata';media.setAttribute('playsinline','');media.setAttribute('aria-label',m.name);}
+                    media.addEventListener('error',()=>{const p=document.createElement('p');p.textContent='Aperçu indisponible dans ce navigateur. Le téléchargement reste disponible.';preview.replaceChildren(p);},{once:true});preview.append(media);
+                }else preview.textContent='Ce format ne permet pas d’aperçu dans le navigateur.';
+                const size=document.createElement('small');size.textContent=bytes(m.size);
+                card.append(label,preview,source,size,fileForm(m.key,m.name));$('library-rows').append(card);
+            }
+            const first=page.total?(page.page-1)*Number($('library-limit').value)+1:0;
+            $('library-summary').textContent=`${first}–${first?first+page.items.length-1:0} sur ${page.total} médias · ${page.allTotal} sauvegardés au total`;
+            if(!page.items.length){const p=document.createElement('p');p.textContent='Aucun média ne correspond à ces filtres.';$('library-rows').append(p);}
+            $('library-page').value=page.page;$('library-page').max=page.pages;$('library-pages').textContent='/ '+page.pages;$('more-library').hidden=page.page>=page.pages;
+            updateSelection();
         });
     }
     function switchTab(saved) {
         for (const [id, selected] of [['saved', saved], ['discord', !saved]]) { $(id + '-tab').setAttribute('aria-selected', String(selected)); $(id + '-tab').tabIndex = selected ? 0 : -1; $(id + '-panel').hidden = !selected; }
     }
-    $('saved-tab').addEventListener('click', () => switchTab(true)); $('discord-tab').addEventListener('click', () => switchTab(false));
+    $('saved-tab').addEventListener('click', () => {switchTab(true);if(!libraryLoaded&&!busy)void library();}); $('discord-tab').addEventListener('click', () => switchTab(false));
     for (const id of ['saved', 'discord']) $(id + '-tab').addEventListener('keydown', e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) { e.preventDefault(); const target = e.key === 'Home' ? 'discord' : e.key === 'End' ? 'saved' : id === 'saved' ? 'discord' : 'saved'; switchTab(target === 'saved'); $(target + '-tab').focus(); } });
-    $('load-library').addEventListener('click', () => void library()); $('more-library').addEventListener('click', () => void library(true));
+    $('load-library').addEventListener('click', () => void library(libraryPage));
+    $('more-library').addEventListener('click', () => void library(libraryPage+1));
+    $('previous-library').addEventListener('click',()=>void library(libraryPage-1));
+    $('go-library').addEventListener('click',()=>void library(Math.max(1,Number($('library-page').value)||1)));
+    $('library-filters').addEventListener('submit',e=>{e.preventDefault();if(!busy){$('library-batches').replaceChildren();void library(1);}});
+    for(const id of ['library-guild','library-channel','library-sort','library-limit'])$(id).addEventListener('change',()=>{if(id==='library-guild')$('library-channel').value='';$('library-batches').replaceChildren();void library(1);});
+    $('select-page').addEventListener('click',()=>{for(const m of libraryItems)selectedLibrary.set(m.key,m);updateSelection();});
+    $('clear-selection').addEventListener('click',()=>{selectedLibrary.clear();updateSelection();$('library-batches').replaceChildren();});
+    $('download-selection').addEventListener('click',selectionBatches);
+    $('download-filtered').addEventListener('click',()=>void run('Préparation des lots',async()=>{const result=await request({action:'library_batches',...libraryFilters()});renderBatches(result.batches);}));
     $('more-media').addEventListener('click', () => { shown += 50; inventory(); });
     $('pause').addEventListener('click', pause);
     window.addEventListener('beforeunload', e => { if (busy) { e.preventDefault(); e.returnValue = ''; } });

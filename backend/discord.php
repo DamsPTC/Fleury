@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/library.php';
 function snowflake(mixed $s): string {
     if (!is_string($s) || !preg_match('/^\d{16,22}$/D',$s)) throw new FleuryError(400,'Identifiant Discord invalide.');
     return $s;
@@ -85,15 +86,25 @@ function valid_chunk(int $status,int $bytes,int $offset,int $length,int $total,s
     if($status!==206||!preg_match('/^bytes\s+(\d+)-(\d+)\/(\d+)$/iD',trim($range),$r))return false;
     return (int)$r[1]===$offset&&(int)$r[2]===$offset+$bytes-1&&(int)$r[3]===$total;
 }
+function cdn_total(int $status,int $bytes,int $offset,int $length,int $expected,string $range): ?int {
+    if($status===206 && preg_match('/^bytes\s+(\d+)-(\d+)\/(\d+)$/iD',trim($range),$m)) {
+        $total=(int)$m[3];
+        if($total<=0 || (int)$m[2]>=$total || ($offset>0&&$total!==$expected))return null;
+        return valid_chunk($status,$bytes,$offset,$length,$total,$range)?$total:null;
+    }
+    return valid_chunk($status,$bytes,$offset,$length,$expected,$range)?$expected:null;
+}
 function save_chunk(array $a,string $key,int $chunkBytes=4194304): array {
     $dir=private_dir();$base=$dir.'/media/'.$key;$expected=(int)$a['size'];
     $lock=fopen($dir.'/storage.lock','c');
     if(!$lock||!flock($lock,LOCK_EX|LOCK_NB))throw new FleuryError(429,'Une sauvegarde est en cours.',2);
     $tmp=null;
     try {
-        if(is_file($base.'.blob') && filesize($base.'.blob')===$expected){
-            if(!is_file($base.'.json'))atomic_write($base.'.json',json_encode(['name'=>$a['filename'],'size'=>$expected,'savedAt'=>gmdate(DATE_ATOM)],JSON_THROW_ON_ERROR|JSON_INVALID_UTF8_SUBSTITUTE));
-            return ['saved'=>true,'existing'=>true,'offset'=>$expected,'total'=>$expected];
+        $transfer=is_file($base.'.transfer')?json_decode((string)file_get_contents($base.'.transfer'),true):null;
+        if(is_array($transfer)&&(is_file($base.'.part')||is_file($base.'.blob')))$expected=(int)$transfer['total'];
+        if(is_file($base.'.blob') && filesize($base.'.blob')===(is_file($base.'.json')?(int)(json_decode((string)file_get_contents($base.'.json'),true)['size']??-1):$expected)){
+            if(!is_file($base.'.json'))atomic_write($base.'.json',json_encode(saved_metadata($key,$a,$expected),JSON_THROW_ON_ERROR|JSON_INVALID_UTF8_SUBSTITUTE));
+            $expected=(int)filesize($base.'.blob');return ['saved'=>true,'existing'=>true,'offset'=>$expected,'total'=>$expected];
         }
         foreach(glob($dir.'/media/chunk-*')?:[] as $stale)if(is_file($stale)&&filemtime($stale)<time()-3600)@unlink($stale);
         $offset=is_file($base.'.part')?(int)filesize($base.'.part'):0;
@@ -111,14 +122,24 @@ function save_chunk(array $a,string $key,int $chunkBytes=4194304): array {
             curl_setopt($c,CURLOPT_HEADERFUNCTION,static function($c,$line)use(&$headers){if(str_starts_with($line,'HTTP/'))$headers=[];if(str_contains($line,':')){[$k,$v]=explode(':',$line,2);$headers[strtolower(trim($k))]=trim($v);}return strlen($line);});
             curl_setopt($c,CURLOPT_WRITEFUNCTION,static function($c,$chunk)use($out,&$bytes,$length){$n=strlen($chunk);if($bytes+$n>$length)return 0;$written=fwrite($out,$chunk);$bytes+=$written;return $written;});
             $ok=curl_exec($c);$status=curl_getinfo($c,CURLINFO_RESPONSE_CODE);$errno=curl_errno($c);curl_close($c);fclose($out);
-            if($ok===false||!valid_chunk($status,$bytes,$offset,$length,$expected,$headers['content-range']??''))throw new FleuryError(502,'Transfert incomplet ou plage invalide : HTTP '.$status.', cURL '.$errno.', début '.$offset.', reçu '.$bytes.' / demandé '.$length.' octets ; Content-Range : '.substr(preg_replace('/[^a-zA-Z0-9 \/\-*]/', '', $headers['content-range']??'absent'),0,100).'.');
+            // The CDN representation can differ in size from Discord's attachment metadata.
+            // Adopt its total only at byte zero; resumed chunks must match the pinned total.
+            $range=$headers['content-range']??'';
+            $total=cdn_total($status,$bytes,$offset,$length,$expected,$range);
+            if($total!==null && $offset===0 && $total!==$expected){
+                if($used+$total+4096>$cap || ($free!==false&&$free<$total+32*1024*1024))throw new FleuryError(507,'Espace insuffisant pour la taille réelle du média.');
+                $expected=$total;
+            }
+            if($ok===false||$total===null||!valid_chunk($status,$bytes,$offset,$length,$expected,$range))throw new FleuryError(502,'Transfert incomplet ou plage invalide : HTTP '.$status.', cURL '.$errno.', début '.$offset.', reçu '.$bytes.' / demandé '.$length.' octets ; Content-Range : '.substr(preg_replace('/[^a-zA-Z0-9 \/\-*]/', '', $headers['content-range']??'absent'),0,100).'.');
+            atomic_write($base.'.transfer',json_encode(['total'=>$expected],JSON_THROW_ON_ERROR));
             $dest=fopen($base.'.part','ab');$source=fopen($tmp,'rb');$copied=stream_copy_to_stream($source,$dest);fclose($source);fclose($dest);
             if($copied!==$bytes)throw new FleuryError(507,'Écriture interrompue. Libère de la place puis reprends.');
             $offset+=$bytes;
         } elseif(!is_file($base.'.part')) {atomic_write($base.'.part','');}
         if($offset===$expected){
             if(!@rename($base.'.part',$base.'.blob'))throw new FleuryError(507,'Impossible de terminer la sauvegarde.');
-            atomic_write($base.'.json',json_encode(['name'=>$a['filename'],'size'=>$expected,'savedAt'=>gmdate(DATE_ATOM)],JSON_THROW_ON_ERROR|JSON_INVALID_UTF8_SUBSTITUTE));
+            atomic_write($base.'.json',json_encode(saved_metadata($key,$a,$expected),JSON_THROW_ON_ERROR|JSON_INVALID_UTF8_SUBSTITUTE));
+            @unlink($base.'.transfer');
             return ['saved'=>true,'existing'=>false,'offset'=>$offset,'total'=>$expected];
         }
         return ['saved'=>false,'offset'=>$offset,'total'=>$expected];
